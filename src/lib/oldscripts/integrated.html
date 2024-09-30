@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Video Tracking</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+    <!-- <link rel="stylesheet" href="./css/testSlider2.css"> -->
+    <script src="https://code.jquery.com/jquery-3.6.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsfeat@0.0.8/build/jsfeat.min.js"></script>
+    <script type="text/javascript" src="js/compatibility.js"></script>
+    <script type="text/javascript" src="js/profiler.js"></script>
+    <script type="text/javascript" src="js/dat.gui.min.js"></script>
+    <script src="https://docs.opencv.org/master/opencv.js"></script>
+    <script src="js/utils.js"></script>
+    
+    <link
+      rel="stylesheet"
+      href="//code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+  </head>
+  <body>
+    <h2>Video Tracking Example</h2>
+    <p id="status">OpenCV.js is loading...</p>
+    <div style="display: flex; flex-flow: column">
+      <div>
+        <input type="file" id = "videoFileInput" accept="video/">
+      </div>
+      <div id="display-container" style="display: inline-flex">
+        <div id="video-container" style="display: inline-flex">
+          <video
+            id="videoInput"
+            width="640"
+            height="480"
+            controls
+            muted
+            src=""
+            style="display:none"
+          ></video>
+          <canvas
+            style="background-color: aqua; display:none"
+            id="canvasOutput"
+            width="640"
+            height="480"
+          ></canvas>
+          <canvas
+            style="background-color: cyan; display:none"
+            class="video-overlay"
+            id="data-overlay"
+          ></canvas>
+          <canvas
+            style="background-color: aquamarine; display:none"
+            class="video-overlay"
+            id="axis-overlay"
+          ></canvas>
+        </div>  
+        <canvas
+          style="background-color: pink; display:none"
+          id="canvasAux"
+          width="640"
+          height="480"
+        ></canvas>
+        <canvas
+          style="background-color: lime; display:none"
+          id="canvasROI"
+          width="640"
+          height="480"
+        ></canvas>
+      </div>
+        <div id="panel-container" >
+          <div class="slide" id="time-slider" display="none">
+            <div class="slide-back"></div>
+            <div class="slide-handle" id="handle-start"></div>
+            <div class="slide-handle" id="handle-current"></div>
+            <div class="slide-handle" id="handle-end"></div>
+          </div>
+          <div id="control-container" style="display:flex; flex-direction: column;">
+            <span>Controls</span>
+            <div id="vid-controls-container" style="display: flex; flex-flow: row;">
+              <button class="btn vid-btn" id="btnFastBackward"><i class="fa fa-fast-backward"></i></button>
+              <button class="btn vid-btn" id="btnBackward"><i class="fa fa-backward"></i></button>
+              <button class="btn vid-btn" id = "btnPlayPause"><i id = "idPlayPause" class="fa fa-play"></i></i></button>
+              <button class="btn vid-btn" id="btnForward"><i class="fa fa-forward"></i></button>
+              <button class="btn vid-btn" id="btnFastForward"><i class="fa fa-fast-forward"></i></button>
+
+              <button class="btn vid-btn" id="btnStartPoint" title="Set Starting Time"><i class="fa fa-star"></i></button>
+              <button class="btn vid-btn" id="btnStopPoint" title="Set Stopping Time"><i class="fa fa-stop"></i></button>
+
+            </div>
+            <div id="draw-controls-container" style="display: flex; flex-flow: row;">
+              <button class="ctrl-btn btn" id="btnToggleShowAxis" title="Show Axis and Scale Bar"><i class="fa fa-toggle-off"></i></button>
+
+              <button class="ctrl-btn btn" id="btnPointer"><i class="fa fa-mouse-pointer"></i></button>
+              <button class="ctrl-btn btn" id="btnDot" title="Record Manual Point"><i class="fa fa-circle-o"></i></button>
+              <!-- <button class="btn" id="btnLine"><i class="fa fa-mars-stroke"></i></button> -->
+            </div>
+            <div id="data-point-control-container" style="display: flex; flex-flow: row">
+              <button class="ctrl-btn btn" id="btnSelect" title="Select Points"><i class="fa fa-square"></i></button>
+              <button class="ctrl-btn btn" id="btnDelete" title="Delete Selected Points"><i class="fa fa-trash"></i></button>
+              <button class="ctrl-btn btn" id="btnDeleteAll" title="Delete All Points"><i class="fa fa-eraser"></i></button>
+              <button class="ctrl-btn btn" id="btnPrint" title="Print Points to Console"><i class="fa fa-print"></i></button>
+              <button class="ctrl-btn btn" id="btnExport" title="Export Points in CSV"><i class="fa fa-file"></i></button>
+            </div>
+          </div>
+        </div>
+    </div>
+
+<!-- 
+    <script type="text/javascript" src="js/featscripts.js"></script>
+    <script type="text/javascript" src="js/imgscripts.js"></script>
+    <script type="text/javascript" src="js/opencvscripts.js"></script> -->
+    <script src="./js/script.js"></script>
+
+
+    
+  </body>
+</html>

@@ -1,0 +1,1041 @@
+$(document).ready(function () {
+  const video = $("#videoInput").get(0);
+  const canvas = $("#canvasOutput").get(0);
+  const canvasAux = $("#canvasAux").get(0);
+  const canvasTemplate = $("#canvasTemplate").get(0);
+  const canvasROI = $("#canvasROI").get(0);
+
+  const canvasVideoMirror = document.createElement("canvas");
+  canvasVideoMirror.setAttribute("id", "canvasVideoMirror");
+
+  var startingTime, stoppingTime;
+  var priorFrame, currentFrame;
+  var priorROI, currentROI;
+  var templateMat;
+
+  var cap;
+
+  var FPS = 30;
+  var templateColor;
+
+  function distance(coords1, coords2) {
+    return ((coords1.x - coords2.x) ** 2 + (coords1.y - coords2.y) ** 2) ** 0.5;
+  }
+
+  class Line {
+    constructor() {
+      this.name = "Line";
+      this.start = { x: 0, y: 0 };
+      this.end = { x: 0, y: 0 };
+      this.color = [255, 0, 0, 255];
+      this.lineWidth = 5;
+    }
+
+    draw(frame) {
+      // console.log(ctx);
+      cv.line(frame, this.start, this.end, this.color, this.lineWidth);
+    }
+    updateStart(coords) {
+      this.start = coords;
+    }
+    updateEnd(coords) {
+      this.end = coords;
+    }
+  }
+
+  class Recticle {
+    constructor() {
+      this.name = "Recticle";
+      this.outerDiameter = 20.0;
+      this.innerDiameter = 5.0;
+      this.coords = { x: 0, y: 0 };
+      this.color = [0, 0, 255, 255];
+      this.lineWidth = 1.0;
+    }
+
+    updateCoords(coords) {
+      this.coords = coords;
+    }
+
+    isClicked(coords) {
+      return distance(coords, this.coords) < this.outerDiameter;
+    }
+
+    draw(frame) {
+      cv.circle(
+        frame,
+        this.coords,
+        this.outerDiameter,
+        this.color,
+        this.lineWidth
+      );
+      cv.circle(
+        frame,
+        this.coords,
+        this.innerDiameter,
+        this.color,
+        this.lineWidth
+      );
+    }
+  }
+
+  class Box {
+    constructor() {
+      this.name = "Box";
+      this.sideLength;
+      this.coords = { x: 0, y: 0 };
+      this.size = { h: 0, w: 0 };
+      this.color = [255, 0, 255, 255];
+      this.lineWidth = 2;
+      this.lineDash = 5;
+    }
+    updateCoords(coords) {
+      this.coords = coords;
+    }
+    updateCorner(cornerCoords) {
+      this.size = {
+        w: cornerCoords.x - this.coords.x,
+        h: cornerCoords.y - this.coords.y,
+      };
+    }
+
+    getCornerCoords() {
+      return {x1: this.coords.x, y1: this.coords.y, x2: this.coords.x + this.size.w, y2: this.coords.y + this.size.h};
+    }
+
+    getInnerCoordsSize() {
+      let x =
+        Math.min(this.coords.x, this.coords.x + this.size.w) + this.lineWidth;
+      let w = Math.abs(this.size.w) - 2 * this.lineWidth;
+      let y =
+        Math.min(this.coords.y, this.coords.y + this.size.h) + this.lineWidth;
+      let h = Math.abs(this.size.h) - 2 * this.lineWidth;
+      return {
+        x: x,
+        y: y,
+        w: w,
+        h: h,
+      };
+    }
+
+    draw(frame) {
+      // cv.rectangle(frame,(384,0),(510,128),(0,255,0),3)
+      cv.rectangle(
+        frame,
+        new cv.Point(this.coords.x, this.coords.y),
+        new cv.Point(this.coords.x + this.size.w, this.coords.y + this.size.h),
+        new cv.Scalar(255, 0, 255, 255),
+        this.lineWidth,
+        cv.LINE_8,
+        0
+      );
+    }
+
+    resetBox() {
+      this.coords = { x: 0, y: 0 };
+      this.size = { h: 0, w: 0 };
+    }
+  }
+
+  class Axis {
+    constructor() {
+      this.name = "Axis";
+      this.origin = { x: 0, y: 0 };
+      this.axisLength = 100;
+      this.color = [0, 0, 0, 255];
+      this.angle = 0;
+      this.xaxis = new Line();
+      this.yaxis = new Line();
+      this.originRecticle = new Recticle();
+      this.xRecticle = new Recticle();
+      this.yRecticle = new Recticle();
+      this.originSelected = false;
+      this.xSelected = false;
+      this.ySelected = false;
+      this.updateAxes();
+    }
+
+    updateOrigin(coords) {
+      this.origin = coords;
+      this.updateAxes();
+    }
+
+    updateAngle(angle) {
+      this.angle = angle;
+    }
+
+    updateAxes() {
+      this.originRecticle.updateCoords(this.origin);
+      this.originRecticle.color = "aqua";
+      this.originRecticle.lineWidth = 2;
+      this.xRecticle.color = "aqua";
+      this.yRecticle.color = "aqua";
+      let xEnd = { x: this.origin.x + this.axisLength, y: this.origin.y };
+      let yEnd = { x: this.origin.x, y: this.origin.y - this.axisLength };
+
+      this.xaxis.updateStart(this.origin);
+      this.xaxis.updateEnd(xEnd);
+      this.xRecticle.updateCoords(xEnd);
+      this.xaxis.lineWidth = 2;
+      this.xaxis.color = "cyan";
+
+      this.yaxis.updateStart(this.origin);
+      this.yaxis.updateEnd(yEnd);
+      this.yRecticle.updateCoords(yEnd);
+      this.yaxis.lineWidth = 2;
+      this.yaxis.color = "cyan";
+    }
+
+    draw(frame) {
+      this.yaxis.draw(frame);
+      this.xaxis.draw(frame);
+      this.originRecticle.draw(frame);
+      this.yRecticle.draw(frame);
+      this.xRecticle.draw(frame);
+    }
+
+    isOriginClicked(coords) {
+      this.originSelected = this.originRecticle.isClicked(coords);
+    }
+
+    reset() {
+      this.originSelected = false;
+      this.xSelected = false;
+      this.ySelected = false;
+    }
+  }
+
+  class ScaleBar {
+    constructor() {
+      this.name = "ScaleBar";
+      this.coords1 = { x: 100, y: 100 };
+      this.coords2 = { x: 200, y: 100 };
+      this.color = "rgb(0,0,0)";
+      this.bar = new Line();
+      this.recticle1 = new Recticle();
+      this.recticle2 = new Recticle();
+      this.recticleSelected1 = false;
+      this.recticleSelected2 = false;
+      this.scaleRatio = 1;
+
+      this.update();
+    }
+    update() {
+      this.setScale();
+      this.recticle1.updateCoords(this.coords1);
+      this.recticle2.updateCoords(this.coords2);
+
+      this.recticle1.color = "aqua";
+      this.recticle1.lineWidth = 2;
+      this.recticle2.color = "aqua";
+      this.recticle2.lineWidth = 2;
+
+      this.bar.color = "aqua";
+      this.bar.lineWidth = 3;
+
+      this.bar.updateStart(this.coords1);
+      this.bar.updateEnd(this.coords2);
+    }
+
+    updateCoords(coords1, coords2) {
+      this.coords1 = coords1;
+      this.coords2 = coords2;
+      this.update();
+    }
+
+    isEndClicked(coords) {
+      this.recticleSelected1 = this.recticle1.isClicked(coords);
+      this.recticleSelected2 = this.recticle2.isClicked(coords);
+    }
+
+    draw(frame) {
+      this.recticle1.draw(frame);
+      this.recticle2.draw(frame);
+      this.bar.draw(frame);
+    }
+
+    reset() {
+      this.recticleSelected1 = false;
+      this.recticleSelected2 = false;
+    }
+
+    setScale() {
+      // pixels to meters
+      this.scaleRatio = distance(this.coords1, this.coords2);
+      // console.log(scaleRatio);
+    }
+  }
+
+  class Point {
+    constructor(coords, time) {
+      this.name = "Point";
+      this.coords = coords;
+      this.color = new cv.Scalar(0, 255, 0, 255);
+      this.highlight = false;
+      this.radius = 2;
+      this.lineWidth = 2;
+      //   this.getTrueCoords();
+      this.time = time;
+    }
+
+    updateCoords(coords) {
+      this.coords = coords;
+      // this.getTrueCoords();
+    }
+
+    draw(frame) {
+      // cv.circle(frame, this.coords, this.radius, this.color, -1);
+      // cv.circle(frame, this.coords, this.radius, this.color, this.lineWidth);
+      cv.circle(
+        frame,
+        new cv.Point(this.coords.x, this.coords.y),
+        this.radius,
+        this.color,
+        -1,
+        cv.LINE_AA
+      );
+
+      if (this.highlight) {
+        cv.circle(
+          frame,
+          this.coords,
+          this.radius + this.lineWidth,
+          new cv.Scalar(0, 255, 255, 255),
+          this.lineWidth,
+          cv.LINE_AA
+        );
+      }
+    }
+
+    isSelected(box) {
+      // console.log(this.coords, box.coords, box.size);
+      let left = Math.min(box.coords.x, box.coords.x + box.size.w);
+      let right = Math.max(box.coords.x, box.coords.x + box.size.w);
+      let top = Math.min(box.coords.y, box.coords.y + box.size.h);
+      let bottom = Math.max(box.coords.y, box.coords.y + box.size.h);
+      return (
+        this.coords.x >= left &&
+        this.coords.x <= right &&
+        this.coords.y >= top &&
+        this.coords.y <= bottom
+      );
+    }
+  }
+
+  class Slider {
+    constructor() {
+      // $("#time-slider").show();
+    }
+  }
+
+  var gui, options;
+
+  var demo_opt = function () {
+    this.color_tolerance = 10;
+  };
+
+  function demo_app(videoWidth, videoHeight) {
+    console.log("enter demo_app");
+    canvas.width = video.width;
+    canvas.height = video.height;
+    canvasVideoMirror.width = video.width;
+    canvasVideoMirror.height = video.height;
+    canvasROI.width = video.width;
+    canvasROI.height = video.height;
+    if (roiBox){
+      roiBox.resetBox();
+      roiBox.updateCoords({ x: 0, y: 0 });
+      roiBox.updateCorner({ x: video.width, y: video.height });
+    }
+
+    if (!gui) {
+      options = new demo_opt();
+      gui = new dat.GUI();
+      gui.add(options, "color_tolerance", 0, 100).step(1);
+    }
+    compatibility.requestAnimationFrame(tick);
+  }
+
+  function tick() {
+    // if (video.paused || video.ended) return;
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      // console.log("tick");
+      cap.read(currentFrame);
+
+      points.forEach((pt) => pt.draw(currentFrame));
+      lines.forEach((ln) => ln.draw(currentFrame));
+
+      selectBox.draw(currentFrame);
+      if (showAxisAndScale) {
+        axis.draw(currentFrame);
+        scaleBar.draw(currentFrame);
+      }
+
+      if (roiBox) {
+        roiBox.draw(currentFrame);
+        let { x, y, w, h } = roiBox.getInnerCoordsSize();
+
+        if (w > 0 && h > 0) {
+          let roi = currentFrame.roi(
+            new cv.Rect({ x: x, y: y, width: w, height: h })
+          );
+          canvasROI.width = w;
+          canvasROI.height = h;
+          cv.imshow("canvasROI", roi);
+          // $("#canvasROI").show();
+        }
+      }
+
+      cursorState == "colorSelect" && templateColor && colorMatch();
+      
+      if (matchTemplateOnPlay && !video.paused && !video.ended) {
+        templateMatch();
+        // updateROI(roiBox, points);
+      }
+
+      // Optical Flow
+      if (points.length > 20000) {
+        // 20000 to prevent it running
+        let winSize = new cv.Size(15, 15);
+        let maxLevel = 2;
+        let criteria = new cv.TermCriteria(
+          cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT,
+          10,
+          0.03
+        );
+
+        let currentFrameGray = new cv.Mat();
+        let priorFrameGray = new cv.Mat();
+        let p0 = new cv.Mat();
+        let p1 = new cv.Mat();
+
+        p0 = new cv.Mat(points.length, 1, cv.CV_32FC2);
+        points.forEach((pt, i) => {
+          p0.data32F[i * 2] = pt.coords.x;
+          p0.data32F[i * 2 + 1] = pt.coords.y;
+        });
+
+        cv.cvtColor(currentFrame, currentFrameGray, cv.COLOR_RGBA2GRAY);
+        cv.cvtColor(priorFrame, priorFrameGray, cv.COLOR_RGBA2GRAY);
+
+        let st = new cv.Mat();
+        let err = new cv.Mat();
+
+        try {
+          cv.calcOpticalFlowPyrLK(
+            priorFrameGray,
+            currentFrameGray,
+            p0,
+            p1,
+            st,
+            err,
+            winSize,
+            maxLevel,
+            criteria
+          );
+        } catch (e) {
+          printError(e);
+        }
+
+        for (let i = 0; i < st.rows; i++) {
+          if (st.data[i] === 1) {
+            points[i].updateCoords({
+              x: p1.data32F[i * 2],
+              y: p1.data32F[i * 2 + 1],
+            });
+          }
+        }
+
+        console.log(p1);
+      }
+      let left = (video.currentTime / video.duration) * 100 + "%";
+      $("#handle-current").css("left", left);
+
+      cv.imshow("canvasOutput", currentFrame);
+      currentFrame.copyTo(priorFrame);
+    }
+    if (video.currentTime <= stoppingTime)
+      compatibility.requestAnimationFrame(tick);
+  }
+
+  // Add an event listener to the file input
+  $("#videoFileInput").change(function (event) {
+    const selectedFile = event.target.files[0]; // Get the selected file
+
+    if (selectedFile) {
+      // Create a URL for the selected file
+      const videoURL = URL.createObjectURL(selectedFile);
+
+      // Set the video element's source to the selected file
+      video.src = videoURL;
+
+      $("#videoInput").hide();
+      $("#canvasOutput").show();
+
+      video.onloadedmetadata = (event) => {
+        console.log(
+          "The duration and dimensions of the media and tracks are now known."
+        );
+        if (video.videoWidth > 700 || video.videoHeight > 700) {
+          video.width = video.videoWidth / 2.0;
+          video.height = video.videoHeight / 2.0;
+        } else {
+          video.width = video.videoWidth;
+          video.height = video.videoHeight;
+        }
+        video.currentTime = 0;
+        startingTime = 0;
+        stoppingTime = video.duration;
+        $("#time-slider").css("width", video.width);
+
+        cap = new cv.VideoCapture(video);
+        priorFrame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+        currentFrame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+        cap.read(priorFrame);
+        demo_app();
+      };
+    }
+  });
+
+  var axis = new Axis();
+  axis.updateOrigin({ x: 200, y: 200 });
+  var scaleBar = new ScaleBar();
+  scaleBar.updateCoords({ x: 100, y: 300 }, { x: 200, y: 300 });
+
+  var showAxisAndScale = false;
+  var matchTemplateOnPlay = false;
+
+  var line = new Line();
+
+  var selectBox = new Box();
+  var roiBox = null; //new Box();
+
+  var FPS = 30;
+  var points = [];
+  var lines = [];
+  var featurePoint;
+
+  var cursorStates = [
+    "dot",
+    "line",
+    "select",
+    "pointer",
+    "tempSelect",
+    "roiSelect",
+    "colorSelect",
+  ];
+
+  var cursorState = "pointer";
+
+  var isVidReady = false;
+  var isCVReady = false;
+
+  function onPlayPauseClick() {
+    if (video.paused) {
+      playVideo();
+    } else {
+      pauseVideo();
+    }
+    // video.paused ? video.play() : video.pause();
+  }
+
+  function pauseVideo() {
+    let icon = document.getElementById("btnPlayPause").children[0];
+    icon.classList.remove("fa-pause");
+    icon.classList.add("fa-play");
+
+    video.pause();
+  }
+
+  function playVideo() {
+    let icon = document.getElementById("btnPlayPause").children[0];
+    icon.classList.remove("fa-play");
+    icon.classList.add("fa-pause");
+    video.play();
+  }
+
+  function onFrameForward() {
+    changeFrames(1);
+  }
+
+  function onFrameBackward() {
+    changeFrames(-1);
+  }
+
+  function changeFrames(deltaFrames) {
+    pauseVideo();
+    if (deltaFrames < 0) {
+      video.currentTime = Math.max(0, video.currentTime + deltaFrames / FPS);
+    } else {
+      video.currentTime = Math.min(
+        video.duration,
+        video.currentTime + deltaFrames / FPS
+      );
+    }
+  }
+
+  function relMouseCoords(event) {
+    var totalOffsetX = 0,
+      totalOffsetY = 0,
+      canvasX = 0,
+      canvasY = 0;
+    var currentElement = this;
+
+    do {
+      totalOffsetX += currentElement.offsetLeft - currentElement.scrollLeft;
+      totalOffsetY += currentElement.offsetTop - currentElement.scrollTop;
+    } while ((currentElement = currentElement.offsetParent));
+
+    canvasX = event.pageX - totalOffsetX;
+    canvasY = event.pageY - totalOffsetY;
+
+    return { x: canvasX, y: canvasY };
+  }
+  HTMLCanvasElement.prototype.relMouseCoords = relMouseCoords;
+
+  function templateMatch() {
+    if (!templateMat) return;
+    if (templateMat.rows < 2 || templateMat.cols < 2) return;
+
+    let dst = new cv.Mat();
+    let mask = new cv.Mat();
+    let srcRoi = new cv.Mat();
+
+    srcRoi =
+      currentROI && currentROI.rows > 2 && currentROI.cols > 2
+        ? currentROI.clone()
+        : currentFrame.clone();
+
+    // cv.matchTemplate(src, templ, dst, cv.TM_SQDIFF_NORMED, mask);
+    // cv.matchTemplate(src, templ, dst, cv.TM_CCORR, mask);
+    cv.matchTemplate(srcRoi, templateMat, dst, cv.TM_CCORR_NORMED, mask);
+    // cv.matchTemplate(src, templ, dst, cv.TM_CCOEFF, mask);
+    let result = cv.minMaxLoc(dst, mask);
+    console.log(result);
+    let maxPoint = result.maxLoc;
+    let color = new cv.Scalar(255, 0, 0, 255);
+    let point = new cv.Point(
+      maxPoint.x + templateMat.cols,
+      maxPoint.y + templateMat.rows
+    );
+    console.log(point);
+    // cv.rectangle(currentFrame, maxPoint, point, color, 2, cv.LINE_8, 0);
+    cv.imshow("canvasOutput", currentFrame);
+    canvasAux.width = canvas.width;
+    canvasAux.height = canvas.height;
+    canvasAux.style.display = "block";
+    cv.imshow("canvasAux", dst);
+
+    pt = new Point(
+      {
+        x: maxPoint.x + roiBox.coords.x + templateMat.cols / 2,
+        y: maxPoint.y + roiBox.coords.y + templateMat.rows / 2,
+      },
+      video.currentTime
+    );
+    points.push(pt);
+
+    srcRoi.delete();
+    dst.delete();
+    mask.delete();
+  }
+
+  function colorMatch() {
+    function getLowerHigher(pct) {
+      var lowerColor = [0, 0, 0, 0];
+      var higherColor = [0, 0, 0, 0];
+      templateColor.forEach((c, i) => {
+        lowerColor[i] = Math.round(c * (1 - pct / 100));
+        higherColor[i] = Math.round(c * (1 + pct / 100));
+      });
+      lowerColor[3] = 0;
+      higherColor[3] = 255;
+      return [lowerColor, higherColor];
+    }
+
+    function drawMatchOnOutput(src, dst) {
+      let highlight = new cv.Mat(
+        src.rows,
+        src.cols,
+        src.type(),
+        [3, 252, 236, 0]
+      );
+      for (i = 0; i < dst.cols * dst.rows; i++) {
+        if (dst.data[i] > 0) {
+          highlight.data[4 * i + 3] = 255;
+        }
+      }
+      cv.imshow("canvasOutput", highlight);
+    }
+    let lower, higher;
+    [lower, higher] = getLowerHigher(options.color_tolerance | 10);
+    let src = cv.imread("canvasROI");
+    let dst = new cv.Mat();
+    let low = new cv.Mat(src.rows, src.cols, src.type(), lower);
+    let high = new cv.Mat(src.rows, src.cols, src.type(), higher);
+    // console.log(low,)
+    cv.inRange(src, low, high, dst);
+    // console.log(dst.rows, dst.cols, dst.data);
+
+    cv.imshow("canvasAux", dst);
+    $("#canvasAux").show();
+    let { x, y } = getPointFromColorMatch(dst);
+    pt = new Point(
+      { x: x + roiBox.coords.x, y: y + roiBox.coords.y },
+      video.currentTime
+    );
+
+    // drawMatchOnOutput(src, dst);
+
+    points.push(pt);
+    src.delete();
+    dst.delete();
+    low.delete();
+    high.delete();
+  }
+
+  function getPointFromColorMatch(dst) {
+    let count = 0,
+      sumX = 0,
+      sumY = 0;
+    for (let i = 0; i < dst.rows; i++) {
+      for (let j = 0; j < dst.cols; j++) {
+        let index = i * dst.cols + j;
+        if (dst.data[index] > 0) {
+          count++;
+          sumX += j;
+          sumY += i;
+        }
+      }
+    }
+    return { x: sumX / count, y: sumY / count };
+  }
+
+  $("#canvasOutput").mousedown((e) => {
+    console.log(e);
+    e.preventDefault();
+    line = new Line();
+    var coords = e.target.relMouseCoords(e);
+    if (
+      !(coords.x > 0) &
+      (coords.y > 0) &
+      (coords.x < canvas.width) &
+      (coords.y < canvas.height)
+    ) {
+      return;
+    }
+    if (cursorState == "line") {
+      startCoords = coords;
+      line.updateStart(coords);
+      line.updateEnd(coords);
+      // console.log(startCoords);
+      lines.push(line);
+    } else if (cursorState == "dot") {
+      points.push(new Point(coords, video.currentTime));
+      onFrameForward();
+    } else if (cursorState == "select" || cursorState == "tempSelect") {
+      selectBox.updateCoords(coords);
+      selectBox.updateCorner({ x: coords.x, y: coords.y });
+      if (cursorState == "select") {
+        points.forEach((pt) => {
+          pt.highlight = pt.isSelected(selectBox);
+        });
+      } else if (cursorState == "tempSelect") {
+      }
+    } else if (cursorState == "roiSelect") {
+      // console.log("roiBox Update");
+      if (!roiBox) roiBox = new Box();
+      roiBox.resetBox();
+      roiBox.updateCoords(coords);
+      roiBox.updateCorner({ x: coords.x, y: coords.y });
+    } else if (cursorState == "pointer") {
+      if (axis.originRecticle.isClicked(coords)) {
+        console.log("origin clicked");
+        axis.isOriginClicked(coords);
+      } else if (
+        scaleBar.recticle1.isClicked(coords) ||
+        scaleBar.recticle2.isClicked(coords)
+      ) {
+        scaleBar.isEndClicked(coords);
+        console.log("end clicked");
+      }
+    } else if (cursorState == "colorSelect") {
+      console.log("convert to opencv type");
+      templateColor = [
+        ...cv.imread("canvasOutput").ucharPtr(coords.y, coords.x),
+      ];
+      // templateColor = [...$("#canvasOutput").get(0).getContext("2d").getImageData(coords.x, coords.y, 1, 1).data];
+      console.log(templateColor);
+      colorMatch();
+      console.log(templateColor);
+    }
+  });
+
+  $("#canvasOutput").mousemove(function (e) {
+    e.preventDefault();
+    // console.log(e.buttons);
+    if (e.buttons == 1) {
+      e.preventDefault();
+      var coords = e.target.relMouseCoords(e);
+      if (
+        !(coords.x > 0) &
+        (coords.y > 0) &
+        (coords.x < e.target.width) &
+        (coords.y < e.target.height)
+      ) {
+        return;
+      }
+      if (cursorState == "line") {
+        line.end = coords;
+      } else if (cursorState == "select" || cursorState == "tempSelect") {
+        selectBox.updateCorner(coords);
+        if (cursorState == "select") {
+          points.forEach((pt) => {
+            pt.highlight = pt.isSelected(selectBox);
+          });
+        } else if (cursorState == "tempSelect") {
+          let { x, y, w, h } = selectBox.getInnerCoordsSize();
+          if (w < 2 || h < 2) return;
+          templateMat = currentFrame.roi(
+            new cv.Rect({ x: x, y: y, width: w, height: h })
+          );
+          cv.imshow("canvasAux", templateMat);
+          $("#canvasAux").show();
+        }
+      } else if (cursorState == "roiSelect") {
+        roiBox.updateCorner(coords);
+        let { x, y, w, h } = roiBox.getInnerCoordsSize();
+        if (w < 2 || h < 2) return;
+        currentROI = currentFrame.roi(
+          new cv.Rect({ x: x, y: y, width: w, height: h })
+        );
+        canvasROI.width = w;
+        canvasROI.height = h;
+        cv.imshow("canvasROI", currentROI);
+        $("#canvasROI").show();
+      } else if (showAxisAndScale && cursorState == "pointer") {
+        if (axis.originSelected) axis.updateOrigin(coords);
+        if (scaleBar.recticleSelected1) {
+          scaleBar.updateCoords(coords, scaleBar.coords2);
+        }
+        if (scaleBar.recticleSelected2) {
+          scaleBar.updateCoords(scaleBar.coords1, coords);
+        }
+        points.forEach((pt) => {
+          pt.getTrueCoords();
+        });
+        // console.log(scaleBar.coords1,scaleBar.coords2);
+      }
+    }
+  });
+
+  $(".ctrl-btn").click((e) => {
+    $(".ctrl-btn").removeClass("selected");
+  });
+
+  $("#canvasOutput").mouseup((e) => {
+    e.preventDefault();
+    console.log("mouseUp");
+    selectBox.resetBox();
+    axis.reset();
+    scaleBar.reset();
+  });
+
+  $("#btnTempMatch").click((e) => {
+    templateMatch();
+    onFrameForward();
+    console.log(points);
+    points.slice(-1).draw(frame);
+  });
+
+  $("#btnPlayPause").click(onPlayPauseClick);
+
+  $("#btnBackward").click(onFrameBackward);
+
+  $("#btnForward").click(onFrameForward);
+  $("#btnStartPoint").click((e) => {
+    if (video.currentTime == startingTime) startingTime = 0;
+    else startingTime = video.currentTime;
+    let left = (startingTime / video.duration) * 100 + "%";
+    $("#handle-start").css("left", left);
+  });
+
+  $("#btnStopPoint").click((e) => {
+    if (video.currentTime == stoppingTime) stoppingTime = video.duration;
+    else stoppingTime = video.currentTime;
+    let left = (stoppingTime / video.duration) * 100 + "%";
+    $("#handle-end").css("left", left);
+  });
+
+  $("#btnPointer").click(function (e) {
+    cursorState = "pointer";
+    $("#btnPointer").addClass("selected");
+  });
+
+  $("#btnDot").click(function (e) {
+    cursorState = "dot";
+    $("#btnDot").addClass("selected");
+  });
+
+  $("#btnSelect").click(function (e) {
+    cursorState = "select";
+    $("#btnSelect").addClass("selected");
+  });
+
+  $("#btnDelete").click(function (e) {
+    points = points.filter((pt) => !pt.highlight);
+    selectBox.resetBox();
+  });
+
+  $("#btnDeleteAll").click(function (e) {
+    points = [];
+    selectBox.resetBox();
+  });
+
+  $("#btnPrint").click(function (e) {
+    points.forEach((pt) => {
+      console.log(pt.time, pt.getTrueCoords());
+    });
+  });
+
+  function convertToCSV(points) {
+    let csv = "Time (s), x position (m), y position (m)\n"; // CSV header
+
+    points.forEach((pt) => {
+      let t = pt.time;
+      let { x: x, y: y } = pt.getTrueCoords();
+      csv += `${t},${x},${y}\n`;
+    });
+
+    return csv;
+  }
+
+  function downloadCSV(csvData, filename) {
+    const blob = new Blob([csvData], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  $("#btnExport").click(function (e) {
+    if (points.length > 0) {
+      const csvData = convertToCSV(points);
+      const filename = "points.csv";
+      downloadCSV(csvData, filename);
+    }
+  });
+
+  $("#btnToggleShowAxis").click(function (e) {
+    showAxisAndScale = !showAxisAndScale;
+    $("#btnToggleShowAxis").addClass("selected");
+  });
+
+  $("#btnToggleMatch").click(function (e) {
+    matchTemplateOnPlay = !matchTemplateOnPlay;
+    $("#btnToggleMatch").addClass("selected");
+  });
+
+  $("#btnTempSelect").click((e) => {
+    cursorState = "tempSelect";
+    $("#btnTempSelect").addClass("selected");
+  });
+
+  $("#btnColorSelect").click((e) => {
+    cursorState = "colorSelect";
+    $("#btnColorSelect").addClass("selected");
+  });
+
+  $("#btnROISelect").click((e) => {
+    roiBox.resetBox();
+    cursorState = "roiSelect";
+    $("#btnROISelect").addClass("selected");
+  });
+
+  $("#btnFastBackward").click((e) => {
+    // video.currentTime = 0;
+    if (video.currentTime == startingTime) video.currentTime = 0;
+    else video.currentTime = startingTime;
+  });
+
+  $("#btnFastForward").click((e) => {
+    // video.currentTime = 0;
+
+    if (video.currentTime == stoppingTime) video.currentTime = video.duration;
+    else video.currentTime = stoppingTime;
+    console.log(video.currentTime, video.duration, stoppingTime);
+  });
+
+  var initSliderHandles = function () {
+    let tt = $("#slider-range span")[1].getAttribute("style") + "z-index: 2";
+    $("#slider-range span")[1].setAttribute("style", tt);
+    console.log("initSliderHandles");
+  };
+
+  var updateSlider = function (event, ui) {
+    $("#slider-range .slide-back").remove();
+    $($("#slider-range span").get().reverse()).each(function (i) {
+      bgs = ["blue", "blue", "white"];
+      $("#slider-range").append(
+        $("<div></div>")
+          .addClass("slide-back")
+          .width($(this).offset().left)
+          .css("background", bgs[i])
+      );
+    });
+
+    if (ui.values[1] < ui.values[0]) {
+      $("#slider-range").slider("values", 1, ui.values[0]);
+      video.currentTime = ui.values[0] / FPS;
+    }
+    if (ui.values[1] > ui.values[2]) {
+      $("#slider-range").slider("values", 1, ui.values[2]);
+      video.currentTime = ui.values[2] / FPS;
+    }
+    video.currentTime = ui.values[1] / FPS;
+  };
+
+  function relMouseScrub(event) {
+    var totalOffsetX = 0,
+      scrubX = 0;
+    var currentElement = this;
+
+    do {
+      console.log(currentElement);
+      totalOffsetX += currentElement.offsetLeft - currentElement.scrollLeft;
+    } while ((currentElement = currentElement.offsetParent));
+
+    scrubX = event.pageX - totalOffsetX;
+
+    return scrubX;
+  }
+
+  $(".slide-handle").mousedown((e) => {
+    e.preventDefault();
+    $(e.target).addClass("clicked");
+    console.log(e.target, " clicked");
+  });
+
+  $(".slide-handle").mouseup((e) => {
+    $(e.target).removeClass("clicked");
+  });
+
+  $(".slide-handle").mousemove((e) => {
+    if ($(e.target).hasClass("clicked")) {
+      console.log(relMouseScrub(e));
+    }
+  });
+
+  // $(".slider-handle").click((e)=>{
+  //   console.log(e.target, ' clicked');
+  //   e.target.addClass("clicked");
+  // })
+
+  // $("")
+});

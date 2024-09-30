@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        #appContainer {
+            width: 100%;
+            height: 100px;
+            background-color: #f4aaf4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #sliderContainer {
+            width: 80%;
+            height: 20px;
+            padding: 1px;
+            background-color: #e0e0e0;
+            display: block;
+            position: relative;
+        }
+        #slider {
+            height: 20px;
+            border: 1px solid #000;
+            background-color: #f4f4f4;
+            resize: both;
+            overflow-x: auto;
+        }
+        .resizable {
+            resize: both;
+            overflow: scroll;
+            border: 1px solid black;
+            }
+
+        div {   
+            height: 300px;
+            width: 300px;
+            }
+
+        p {
+            height: 200px;
+            width: 200px;
+            }
+        #text-container {
+            width: 300px;
+            height: 300px;
+            border: 1px solid black;
+            overflow: auto;
+            }
+    </style>
+    <script src="https://code.jquery.com/jquery-3.6.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
+</head>
+<body>
+    <div id = 'appContainer'>
+        <div id="sliderContainer">
+            <div id="slider">dfasdfas</div>
+        </div>
+    </div>
+    <div id="text-container">
+        <p class="resizable">
+          This paragraph is resizable in all directions, because the CSS `resize`
+          property is set to `both` on this element.
+        </p>
+      </div>
+</body>
+<script>
+    $(function() {
+        $( "#slider" ).slider({
+            value: 100,
+            min: 0,
+            max: 500,
+            step: 50,
+            slide: function( event, ui ) {
+                console.log(ui.value);
+            }
+        });
+    });
+
+</script>
+</html>

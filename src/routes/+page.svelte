@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import {getGrayFrame, getForground} from '$lib/opencvscripts';
 
 	let cv_cdn_url: string = 'https://cdn.jsdelivr.net/npm/opencv-browser@1.0.0/opencv.min.js';
 	let img: HTMLImageElement;
@@ -115,10 +116,12 @@
                 console.error("Unexpected number of channels: ", frame.channels());
                 cv.cvtColor(frame, frame, cv.COLOR_RGB2RGBA); // Convert to 4-channel if necessary
             }
+			
+			// getGrayFrame(frame);
+			getForground(frame);
 			cv.imshow('canvasInput', frame);
             frame.delete();
         }
-
 	});
 </script>
 
@@ -136,4 +139,4 @@
 <video id="videoInput" controls  width=600 height=400 />
 
 <canvas style="background-color: red;" id="canvasInput" width="640" height="480"> </canvas>
-<canvas style="background-color: aqua;" id="canvasOutput" width="640" height="480"></canvas>
+<!-- <canvas style="background-color: aqua;" id="canvasOutput" width="640" height="480"></canvas> -->
